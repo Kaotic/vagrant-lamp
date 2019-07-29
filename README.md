@@ -1,7 +1,8 @@
 ## Features
+- Ready for web & node.js development
 - Configurable
 - Auto update host file (```debdev.local``` by default)
-- Ready for web apps & Node.js apps (auto synchronization)
+- Auto directory synchronization (```./app_web/ | ./app_nodejs/```)
 - xDebug installed (port 9000)
 - Alias commands for quick access (```app_web, app_nodejs, db```)
 - Composer auto init github token
