@@ -1,0 +1,82 @@
+require 'yaml'
+require 'fileutils'
+
+required_plugins = %w( vagrant-hostmanager vagrant-vbguest )
+required_plugins.each do |plugin|
+    exec "vagrant plugin install #{plugin}" unless Vagrant.has_plugin? plugin
+end
+
+# Virtual Hosts
+domains = {
+  debdev: 'debdev.local',
+  debdev2: 'debdev2.local'
+}
+
+config = {
+  local: './vagrant/config/vagrant-local.yml',
+  example: './vagrant/config/vagrant-local.example.yml'
+}
+
+# copy config from example if local config not exists
+FileUtils.cp config[:example], config[:local] unless File.exist?(config[:local])
+# read config
+options = YAML.load_file config[:local]
+
+# check github token
+if options['github_token'].nil? || options['github_token'].to_s.length != 40
+  puts "You must place REAL GitHub token into configuration vagrant-local.yml"
+  exit
+end
+
+domain = options['hostname']
+
+Vagrant.configure("2") do |config|
+	# Select the box
+	config.vm.box = "debian/stretch64"
+
+	# Should we ask about box updates?
+	config.vm.box_check_update = options['box_check_update']
+	
+	config.vm.provider 'virtualbox' do |vb|
+		# Machine cpus count
+		vb.cpus = options['cpus']
+		# Machine memory size
+		vb.memory = options['memory']
+		# Machine name (for VirtualBox UI)
+		vb.name = options['machine_name']
+	end
+	
+	# Machine name (for vagrant console)
+	config.vm.define options['machine_name']
+	
+	# Machine name (for guest machine console)
+	config.vm.hostname = options['machine_name']
+	
+	# Network settings
+	config.vm.network 'private_network', ip: options['ip']
+	
+	# Sync: folder 'app_web' (host machine) -> folder '/app_web' (guest machine)
+	config.vm.synced_folder './app_web', '/app_web', owner: 'vagrant', group: 'www-data', mount_options: ["dmode=775,fmode=775"]
+	
+	# Sync: folder 'app_nodejs' (host machine) -> folder '/app_nodejs' (guest machine)
+	config.vm.synced_folder './app_nodejs', '/app_nodejs', owner: 'vagrant', group: 'vagrant', mount_options: ["dmode=775,fmode=775"]
+	
+	# Disable folder '/vagrant' (guest machine)
+	config.vm.synced_folder '.', '/vagrant', disabled: true
+	
+	# Hosts settings (host machine)
+	config.vm.provision :hostmanager
+	config.hostmanager.enabled            = true
+	config.hostmanager.manage_host        = true
+	config.hostmanager.ignore_private_ip  = false
+	config.hostmanager.include_offline    = true
+	config.hostmanager.aliases            = domain #if multiple apache2 virtual host change this value to --> domains.values
+	
+	# Boot Scripts
+	config.vm.provision 'shell', path: './vagrant/once-as-root.sh', args: [options['timezone'], options['mysql_root_password']]
+	config.vm.provision 'shell', path: './vagrant/once-as-vagrant.sh', args: [options['github_token'], options['mysql_root_password']], privileged: false
+	config.vm.provision 'shell', path: './vagrant/always-as-root.sh', run: 'always'
+
+	# Post-install message (vagrant console)
+	config.vm.post_up_message = "Machine URL: http://#{domain} is ready!"
+end
